@@ -106,14 +106,4 @@ The `--plot` argument will display the equity curve and trade markers after the 
 ### Data Analysis
 Launch the provided Jupyter notebooks to conduct detailed analysis:
 - **Monthly Analysis:** Open `monthly_analysis.ipynb`
-- **Intraday Analysis:** Open `intraday_analysis_interactive.ipynb`
-
-## License
-
-This project is licensed under the MIT License.
-
-## Acknowledgments
-
-- Utilizes CatBoost for model training and backtrader for simulating trading strategies.
-- Interactive visualizations powered by ipywidgets and matplotlib.
-- Contributions, feedback, and suggestions are welcome to further enhance the framework.
+- **Intraday Analysis:** Open `intraday_analysis.ipynb`
