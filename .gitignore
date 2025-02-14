@@ -1,1 +1,7 @@
 data/
+catboost_info/
+.ipynb_checkpoints/
+__pycache__/
+.vscode/
+dataset/
+models/
