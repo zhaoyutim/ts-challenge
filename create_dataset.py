@@ -52,7 +52,7 @@ def load_timeseries_data(stock_symbol=None, data_folder='data'):
         try:
             with h5py.File(file, 'r') as h5f:
                 data_dict = {col_name: h5f[col_name][()] for col_name in h5f.keys()}
-                df_temp = pd.DataFrame(data_dict)
+                df_temp = pd.DataFrame(data_dict).dropna()
         except Exception as e:
             print(f"Error reading {base}: {e}")
             continue
@@ -211,10 +211,10 @@ if __name__ == '__main__':
     print(f"Training set shape: {train_df.shape}")
     print(f"Test set shape: {test_df.shape}")
     
-    features = [col for col in df.columns if col not in 
+    features = [col for col in train_df.columns if col not in 
                 ['Return_1min', 'Return_5min', 'Return_10min', 'Return_1h', 
                  'Nano', 'DataTime', 'TradingDay', 'InstrumentID', 'TimeBinStart', 'TimeBinEnd']]
-    print(df.columns)
+    print(train_df.columns)
     print("Length of features:", len(features))
     
     # Prepare and save data separately for training and test sets.

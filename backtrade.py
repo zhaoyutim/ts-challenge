@@ -9,7 +9,7 @@ import ipywidgets as widgets
 from ipywidgets import interact
 
 class BackTradeTester:
-    def __init__(self, model, initial_capital=10000.0, trade_size=1, transaction_cost=0.0):
+    def __init__(self, model, initial_capital=10000.0, trade_size=1, sell_transaction_cost=0.0012, buy_transaction_cost=0.0002):
         """
         Initializes the backtesting framework.
         
@@ -25,8 +25,9 @@ class BackTradeTester:
         self.position = 0          # 1 for long, -1 for short, 0 for neutral
         self.entry_price = None    # price at which current position was opened
         self.trade_size = trade_size
-        self.transaction_cost = transaction_cost
-        
+        self.sell_transaction_cost = sell_transaction_cost
+        self.buy_transaction_cost = buy_transaction_cost
+
         self.trade_history = []    # list to record all trade events
         self.equity_curve = []     # equity value at each tick
         self.timestamps = []       # corresponding timestamps for equity curve
@@ -42,7 +43,7 @@ class BackTradeTester:
         # Close any existing position
         if self.position != 0:
             # Calculate profit/loss: profit = position * (exit_price - entry_price) * trade_size
-            profit = self.position * (price - self.entry_price) * self.trade_size - self.transaction_cost
+            profit = self.position * (price - self.entry_price) * self.trade_size - self.sell_transaction_cost * price * self.trade_size - self.buy_transaction_cost * self.entry_price * self.trade_size
             self.cash += profit
             trade_exit = {
                 'timestamp': timestamp,
@@ -86,13 +87,12 @@ class BackTradeTester:
         Only allows orders to be executed if the DataTime is before 10:00.
         
         Parameters:
-            features: A pd.Series containing tick data (typically without non-feature fields such as timestamp).
+            features: A pd.Series containing tick data.
             
         Returns:
-            A string signal: "LONG", "SHORT", or "HOLD".
+            A string signal: "LONG", "SHORT", "HOLD", or "CLOSE".
         """
         # Check the DataTime field to determine the trading window.
-        # If DataTime exists and is 10:00 or later, return "HOLD" immediately.
         dt_value = features.get("DataTime", None)
         if dt_value is not None:
             import datetime
@@ -104,7 +104,8 @@ class BackTradeTester:
 
             threshold_time = datetime.time(10, 0)
             if dt_parsed.time() >= threshold_time:
-                return "HOLD"
+                # Return CLOSE signal after 10:00 to exit any open positions.
+                return "CLOSE"
 
         # Drop non-feature columns that should not be used for prediction.
         features = features.drop(labels=['Nano', 'DataTime', 'TradingDay', 'InstrumentID', 'TimeBinStart', 'TimeBinEnd'], errors='ignore')
@@ -113,7 +114,7 @@ class BackTradeTester:
         # If self.model is a list of models, aggregate their predictions.
         if isinstance(self.model, list):
             predictions = [model.predict(features_array) for model in self.model]
-            ensemble_pred = sum(predictions)  # You may also choose to average these predictions.
+            ensemble_pred = sum(predictions)  # Could also average if desired.
         else:
             ensemble_pred = self.model.predict(features_array)
 
@@ -145,14 +146,17 @@ class BackTradeTester:
                 self.execute_trade(new_position=100, price=price, timestamp=timestamp)
             elif signal == 'SHORT':
                 self.execute_trade(new_position=-100, price=price, timestamp=timestamp)
+            elif signal == 'CLOSE':
+                # Close any open position if it exists.
+                self.execute_trade(new_position=0, price=price, timestamp=timestamp)
             elif signal == 'HOLD':
-                # Do nothing; maintain current position
+                # Do nothing; maintain current position.
                 pass
             else:
-                # If an unrecognized signal is returned, you might want to log or ignore
+                # Handle any unexpected signal if needed.
                 pass
 
-            # Update and record the current equity
+            # Update and record the current equity.
             current_equity = self.update_equity(price)
             self.equity_curve.append(current_equity)
             self.timestamps.append(pd.to_datetime(timestamp, unit='ns'))
@@ -161,7 +165,7 @@ class BackTradeTester:
         if self.position != 0:
             final_tick = tick_data.iloc[-1]
             self.execute_trade(new_position=0, price=final_tick['LastPrice'], timestamp=final_tick['Nano'])
-            # Update the last equity point
+            # Update the last equity point.
             self.equity_curve[-1] = self.update_equity(final_tick['LastPrice'])
             
         return self.equity_curve, self.trade_history
@@ -238,7 +242,7 @@ def plot_equity_curve(timestamps, equity_curve, price_series, trade_history=None
             pd.to_datetime(trade["timestamp"], unit="ns").date()
             for trade in trade_history if trade.get("action") == "OPEN"
         }
-        filtered_timestamps = [ts for ts in timestamps if ts.date() in trade_days]
+        filtered_timestamps = [ts+pd.Timedelta(hours=8) for ts in timestamps if ts.date() in trade_days]
         filtered_equity = [eq for ts, eq in zip(timestamps, equity_curve) if ts.date() in trade_days]
         filtered_prices = [price for ts, price in zip(timestamps, price_series) if ts.date() in trade_days]
     else:
@@ -267,7 +271,7 @@ def plot_equity_curve(timestamps, equity_curve, price_series, trade_history=None
         short_equity = []
         for trade in trade_history:
             if trade.get("action") == "OPEN":
-                trade_time = pd.to_datetime(trade["timestamp"], unit="ns")
+                trade_time = pd.to_datetime(trade["timestamp"], unit="ns")+pd.Timedelta(hours=8)
                 # Find the indices in filtered_timestamps corresponding to the same day.
                 matching_indices = [
                     i for i, ts in enumerate(filtered_timestamps) if ts.date() == trade_time.date()
@@ -288,10 +292,10 @@ def plot_equity_curve(timestamps, equity_curve, price_series, trade_history=None
                     short_equity.append(eq_val)
         if long_times:
             ax1.scatter(long_times, long_equity, marker="^", color="green",
-                        s=10, label="LONG")
+                        s=100, label="LONG")
         if short_times:
             ax1.scatter(short_times, short_equity, marker="v", color="red",
-                        s=10, label="SHORT")
+                        s=100, label="SHORT")
     
     ax1.set_title("Equity Curve & Real Time Price (Days with Trades Only)")
     ax1.legend(loc="upper left")
@@ -314,7 +318,7 @@ def plot_specific_day(day, timestamps, equity_curve, price_series, trade_history
     import pandas as pd
 
     # Filter the data to the chosen day.
-    filtered_timestamps = [ts for ts in timestamps if ts.date() == day]
+    filtered_timestamps = [ts+pd.Timedelta(hours=8) for ts in timestamps if ts.date() == day]
     filtered_equity = [eq for ts, eq in zip(timestamps, equity_curve) if ts.date() == day]
     filtered_prices = [price for ts, price in zip(timestamps, price_series) if ts.date() == day]
     
@@ -392,13 +396,48 @@ def interactive_day_plot(timestamps, equity_curve, price_series, trade_history=N
              price_series=widgets.fixed(price_series),
              trade_history=widgets.fixed(trade_history))
 
+def calculate_sharpe_ratio(equity_curve, timestamps, risk_free_rate=0.0):
+    """
+    Calculates the annualized Sharpe Ratio given an equity curve and its timestamps.
+    
+    Parameters:
+        equity_curve (List[float]): List of equity (capital) values recorded at each tick.
+        timestamps (List[pd.Timestamp]): Corresponding timestamps for the equity values.
+        risk_free_rate (float): Annualized risk-free rate (default is 0.0).
+
+    Returns:
+        float: The annualized Sharpe Ratio.
+    """
+    import pandas as pd
+    import numpy as np
+
+    # Create a pandas Series from the equity curve with the timestamps as index.
+    equity_series = pd.Series(equity_curve, index=pd.to_datetime(timestamps))
+    
+    # Resample to daily frequency using the last equity value of each day.
+    daily_equity = equity_series.resample('D').last()
+    
+    # Compute daily percentage returns and drop the first NaN value.
+    daily_returns = daily_equity.pct_change().dropna()
+    
+    # Convert the annual risk-free rate into a daily risk-free rate assuming 252 trading days.
+    daily_rf = risk_free_rate / 252
+    
+    # Calculate excess returns.
+    excess_daily_returns = daily_returns - daily_rf
+    
+    # Compute and return the annualized Sharpe Ratio.
+    sharpe_ratio = np.sqrt(252) * excess_daily_returns.mean() / excess_daily_returns.std()
+    return sharpe_ratio
+
 def main():
     parser = argparse.ArgumentParser(description='BackTrade Testing Framework')
     parser.add_argument('--model', type=str, required=True,
                         help='Path to the pretrained model pickle file or directory containing CatBoost .cbm files')
     parser.add_argument('--initial_capital', type=float, default=10000.0, help='Initial capital for the backtest')
     parser.add_argument('--trade_size', type=int, default=1, help='Number of shares per trade')
-    parser.add_argument('--transaction_cost', type=float, default=0.0, help='Transaction cost per trade (applied on close)')
+    parser.add_argument('--buy_transaction_cost', type=float, default=0.0002, help='Buy transaction cost per trade')
+    parser.add_argument('--sell_transaction_cost', type=float, default=0.0012, help='Sell transaction cost per trade')
     parser.add_argument('--plot', action='store_true', help='Plot the equity curve at the end of the backtest')
     args = parser.parse_args()
     
@@ -410,10 +449,10 @@ def main():
     print("After splitting by datetime:")
     print(f"Test set shape: {test_df.shape}")
     
-    features = [col for col in df.columns if col not in 
+    features = [col for col in test_df.columns if col not in 
                 ['Return_1min', 'Return_5min', 'Return_10min', 'Return_1h', 
                  'Nano', 'DataTime', 'TradingDay', 'InstrumentID', 'TimeBinStart', 'TimeBinEnd']]
-    print(df.columns)
+    print(test_df.columns)
     print("Length of features:", len(features))
     
     model = load_model(args.model)
@@ -422,7 +461,8 @@ def main():
     tester = BackTradeTester(model,
                              initial_capital=args.initial_capital,
                              trade_size=args.trade_size,
-                             transaction_cost=args.transaction_cost)
+                             buy_transaction_cost=args.buy_transaction_cost,
+                             sell_transaction_cost=args.sell_transaction_cost)
     equity_curve, trades = tester.run_backtest(test_df)
     
     # Get the real time price series from the tick data (for example, 'LastPrice')
@@ -430,9 +470,10 @@ def main():
     price_series = test_df["LastPrice"].tolist()
     
     print("Final Equity: {:.2f}".format(equity_curve[-1]))
-    print("Trade History:")
-    for trade in trades:
-        print(trade)
+    
+    # Calculate and print the Sharpe Ratio.
+    sharpe_ratio = calculate_sharpe_ratio(equity_curve, tester.timestamps)
+    print("Sharpe Ratio: {:.4f}".format(sharpe_ratio))
     
     if args.plot:
         # Pass the price_series as the third argument and trade_history as the fourth.

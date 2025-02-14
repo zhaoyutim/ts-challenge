@@ -65,22 +65,22 @@ if __name__ == "__main__":
     y_train = np.squeeze(y_np)
     
     # Define CatBoost hyperparameters (moved here so they can be logged later).
-    ctb_params = {
-        'iterations': 2000,
-        'learning_rate': 0.1,
-        'depth': 12,
-        'l2_leaf_reg': 30,
-        'bootstrap_type': 'Bernoulli',
-        'subsample': 0.66,
-        'loss_function': 'RMSE',
-        'eval_metric': 'RMSE',
-        'metric_period': 100,
-        'od_type': 'Iter',
-        'od_wait': 200,
-        'task_type': 'GPU',
-        'allow_writing_files': False,
-        'random_strength': 4.428571428571429
-    }
+    ctb_params = dict(
+        iterations=2000,
+        learning_rate=0.1,
+        depth=6,
+        l2_leaf_reg=30,
+        bootstrap_type='Bernoulli',
+        subsample=0.66,
+        loss_function='MAE',
+        eval_metric='MAE',
+        metric_period=100,
+        od_type='Iter',
+        od_wait=200,
+        task_type='GPU',
+        allow_writing_files=False,
+        random_strength=4.428571428571429
+    )
     
     # Train models for the selected target dimensions.
     models = train_models(X_train, y_train, dims, ctb_params)
@@ -107,12 +107,12 @@ if __name__ == "__main__":
     predictions = np.column_stack(predictions_list)
     print("Combined predictions shape:", predictions.shape)
     
-    # Calculate root mean squared error (RMSE)
-    rmse_per_target = np.sqrt(np.mean((predictions - y_test * 100) ** 2, axis=0))
-    overall_rmse = np.sqrt(mean_squared_error(predictions, y_test * 100))
+    # Evaluate predictions using Mean Absolute Error (MAE)
+    mae_per_target = np.mean(np.abs(predictions - y_test * 100), axis=0)
+    overall_mae = np.mean(np.abs(predictions - y_test * 100))
     
-    print("RMSE per target dimension:", rmse_per_target)
-    print("Overall RMSE:", overall_rmse)
+    print("MAE per target dimension:", mae_per_target)
+    print("Overall MAE:", overall_mae)
     
     # Save training parameters and testing results to a text file.
     models_dir = "models"
@@ -127,7 +127,7 @@ if __name__ == "__main__":
             file.write("Training Parameters:\n")
             for key, value in ctb_params.items():
                 file.write(f"    {key}: {value}\n")
-            file.write(f"Root Mean Squared Error (Test): {rmse_per_target[idx]}\n\n")
-        file.write(f"Overall RMSE: {overall_rmse}\n")
+            file.write(f"Mean Absolute Error (Test): {mae_per_target[idx]}\n\n")
+        file.write(f"Overall MAE: {overall_mae}\n")
     
     print(f"Training parameters and testing scores saved to {results_filepath}")

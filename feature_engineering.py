@@ -1,6 +1,6 @@
 import pandas as pd
 
-def create_features(df):
+def create_features(df, version='v2'):
     # df['Return_tick'] = pct_return(df, window='1s')  # 1 second window for tick return
     df['Return_1min'] = df.groupby(['InstrumentID', 'TradingDay'])[['LastPrice']]\
                         .transform(lambda x: pct_return(x, '1min'))
@@ -12,7 +12,39 @@ def create_features(df):
                       .transform(lambda x: pct_return(x, '1h'))
     df['VolumeChange'] = df.groupby(['InstrumentID', 'TradingDay'])[['Volume']]\
                         .transform(lambda x: volume_change(x))
-    
+    if version != 'v1':
+        df['LastPrice_return'] = df['LastPrice'].pct_change()
+
+        # Calculate volatility using LastPrice returns instead of Return_1min (which is the label)
+        df['Volatility_5min'] = df['LastPrice_return'].rolling(window=5, min_periods=1).std() * 100  # 5-minute rolling volatility
+        df['RealizedVol_1min'] = (
+            df['LastPrice_return'].abs()
+            .resample('1min')
+            .sum()
+            .reindex(df.index, method='ffill')
+        )  # 30-min realized volatility
+
+        df['RealizedVol_5min'] = (
+            df['LastPrice_return'].abs()
+            .resample('5min')
+            .sum()
+            .reindex(df.index, method='ffill')
+        )  # 30-min realized volatility
+
+        df['RealizedVol_10min'] = (
+            df['LastPrice_return'].abs()
+            .resample('10min')
+            .sum()
+            .reindex(df.index, method='ffill')
+        )  # 30-min realized volatility
+        # Calculate number of trades (assuming each row represents a trade)
+        df['Trades_1min'] = df.resample('1min', on='DataTime')['Volume'].transform('count')
+        df['Trades_5min'] = df.resample('5min', on='DataTime')['Volume'].transform('count').ffill()
+
+        # Calculate number of book orders (sum of all ask/bid volumes)
+        df['TotalBookOrders'] = (df[[f'AskVolume{i}' for i in range(1,11)] + 
+                                                    [f'BidVolume{i}' for i in range(1,11)]].sum(axis=1))
+        df['BookOrders_1min'] = df.resample('1min', on='DataTime')['TotalBookOrders'].transform('sum').ffill()
     imbalance_series_1min = df.groupby(['InstrumentID', 'TradingDay']).apply(lambda group: imbalance_price(group, '1min'))
     df['ImbalancePrice_1min'] = imbalance_series_1min.reset_index(level=[0, 1], drop=True)
     
